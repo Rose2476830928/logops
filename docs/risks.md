@@ -30,10 +30,12 @@
 | 编号 | 风险点 | 触发场景 | 影响范围 | 规避方式 / 验证 |
 |---|---|---|---|---|
 | R6 | gawk 扩展语法在 mawk 下崩 | `analyze.sh` 用 `gensub()`、`asort()`、`match($0,re,arr)` 三参数版、正则 `\s` | 开发机（Ubuntu 25.10，gawk 5.3）正常，验收机（22.04 默认 mawk）语法错或**静默算错**。验收项 5「指标正确」直接扣分，且现场才发现 | 只用 POSIX awk（空白用 `[[:space:]]`）；`AWK="${AWK:-awk}"` 允许切实现；验证：`AWK=mawk ./analyze.sh ...` 与 gawk 结果逐项一致 |
-| R7 | `pipefail` 下管道被截断返回 141 | 写 `tr -dc 'A-Za-z0-9' < /dev/urandom \| head -c 16` | `set -euo pipefail` 让整条管道返回 141，脚本静默退出且无明显报错，表现为「init 跑到一半没了」 | 改 `dd if=/dev/urandom bs=64 count=1 \| tr -dc ... \| cut -c1-16`（`cut` 读完所有输入，不触发 SIGPIPE）；验证：同命令加 `set -euo pipefail` 跑一次，`echo $?` 为 0 |
+| R7 | `pipefail` 下管道被截断返回 141 | 写 `tr -dc 'A-Za-z0-9' < /dev/urandom \| head -c 16` | `set -euo pipefail` 让整条管道返回 141，脚本静默退出且无明显报错，表现为「init 跑到一半没了」 | 改 `dd if=/dev/urandom bs=1024 count=1 \| tr -dc ... \| cut -c1-16`（`cut` 读完所有输入，不触发 SIGPIPE）；验证：加 `set -euo pipefail` 跑一次，`echo $?` 为 0 |
+| R7b | 随机数据量不足以凑够字符数 | 沿用 `bs=64` 生成 16 位密码 | 64 字节经 `tr` 过滤后平均只有约 15 个字符（可打印字母数字约占 24%），**实测出现长度 12**，密码生成失败 | 输入量放大到 `bs=1024`（过滤后约 240 字符）；保留长度校验 `[[ ${#pw} -eq 16 ]]`，宁可报错也不生成短密码；验证：循环 20 次全部 16 位 |
 | R8 | `[[ 条件 ]] && 命令` 作为函数最后一句 | 函数末尾写 `[[ -f x ]] && log ok` | 条件为假时函数返回 1，调用处被 `set -e` 直接终止。表现为「明明检查都过了，脚本却退出」 | 一律改成 `if ... then ... fi`；验证：`shellcheck` 的 SC2015，或把条件设假跑一次 |
 | R9 | `.env` 被重复执行覆盖 | `init.sh` 没有存在性判断，或每次无条件重写密码 | 已有数据卷的密码与新 `.env` 不一致 → db 连不上；验收项 2「连跑两次不改 .env」失败 | 存在即整体跳过；模板新增字段时**只警告缺字段、不自动改**；验证：连跑两次后 `sha256sum .env` 不变 |
 | R10 | 密码进入仓库 | 把真实密码写进 `.env.example`、脚本或镜像 | 课程第 9 节：**一旦提交即视为不合格**；public 仓库永久留痕，删文件也没用 | 模板只留 `DB_PASSWORD=` 空占位；`init.sh` 随机生成 + `chmod 600`；`.gitignore` 拦截；验证：`git diff --cached \| grep -i 'password='` 只应看到空值 |
+| R20 | 可选命令不存在被 `pipefail` 传成 127 | 写 `sc=$(shellcheck --version \| awk ...)` 而该命令未安装 | `set -e` 下整条管道返回 127，脚本在"看起来成功了"的位置**静默退出**，后续步骤全部跳过。**本轮实测踩中**：`init.sh` 生成 `.env` 后直接 exit 127，环境报告没写出来 | 先用 `command -v` 判断再调用，或 `( cmd \|\| true ) \| ...` 兜底；验证：`bash -c 'set -euo pipefail; x=$(not_exist \| cat); echo $?'` 应看到非 0 并确认已被捕获 |
 
 ## C 容器与编排类
 
@@ -60,10 +62,12 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| `init.sh` 依赖检查（R1/R3） | 已实现、已验证 | Windows 侧 docker 可用（29.4.0 / linux）时完整跑通；daemon 未起时按 R1 的提示 exit 1 |
-| `init.sh` 幂等（R9） | 已实现、已验证 | 连跑两次，第二次输出「.env 已存在，跳过」，`.env` 的 sha256 不变 |
-| 随机密码（R7/R10） | 已实现、已验证 | 16 位，只打印长度不打印内容；`dd \| tr \| cut` 无 SIGPIPE |
-| `/mnt` 路径告警（R2） | 已实现、未触发验证 | 需要实际把仓库放到 `/mnt/[a-z]/` 下才能看到警告，当前仓库在 D 盘正是该场景，实跑可复现 |
-| 缺字段提示（R9） | 已实现、未验证 | 需要人工删掉 `.env` 里某一行才能测 |
-| shellcheck 清零（R8） | 待执行 | 在 WSL 里跑 `shellcheck -x *.sh`，告警必须为 0 |
+| `init.sh` 语法与静态检查（R8/R20） | **已验证通过** | `bash -n` 通过；`shellcheck -x` 用 `koalaman/shellcheck:stable` 容器跑，0 告警 |
+| `init.sh` 依赖检查（R1/R3） | 已实现、已验证 | Windows 侧 docker 可用（29.4.0 / linux）时完整跑通；daemon 未起时按 R1 提示 exit 1 |
+| `init.sh` 幂等（R9） | **已验证通过** | 连跑两次均 exit 0，第二次输出「.env 已存在，跳过」，`.env` 的 sha256 两次一致：`d55d4a9a…6a08` |
+| 随机密码（R7/R7b/R10） | **已验证通过** | 20 次压测全部 16 位；只打印长度不打印内容；首版 `bs=64` 实测出现 12 位，已改 `bs=1024` |
+| 参数与退出码（R8） | **已验证通过** | `--help` → exit 0；未知参数 → 打印用法 + exit 2 |
+| 运行期产物不入库（R10） | **已验证通过** | `.env`、`data/logs/init-report.txt` 均被 `git check-ignore` 命中 |
+| `/mnt` 路径告警（R2） | 已实现、未触发 | case 分支已用 `/mnt/d/…`、`/home/…`、`/d/…` 三个样本验证匹配正确；真实触发需在 WSL 的 `/mnt/d` 下运行 |
+| 缺字段提示（R9） | 已实现、未验证 | 需要人工从 `.env` 删掉一行才能测，留给 WSL 环境补测 |
 | R6 / R11–R15 | 尚未涉及 | 属 D3–D6 的实现范围，实现时逐条对照本表 |
