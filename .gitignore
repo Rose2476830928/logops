@@ -11,6 +11,7 @@ out/*
 data/logs/*.log
 data/logs/*.gz
 data/logs/*.log.*
+data/logs/*.txt
 !data/logs/.gitkeep
 
 # ---- 临时文件（课程文档 *.docx 不忽略）----
@@ -27,3 +28,6 @@ Thumbs.db
 # ---- 运行期容器数据 ----
 data/db/
 *.pid
+
+# ---- 课程原始材料（内容已转录进 docs/requirements.md，原件不入库）----
+qimo/
