@@ -24,33 +24,18 @@
 
 ## 1. 开工前必须知道的现状
 
-**远程仓库目前是空的。** 实测证据（2026-11-23）：
+**远程仓库已有 `main` 分支。** 组长于 2026-11-24 完成首次 push（`c0d6b6a`，共 6 个提交）。
+
+任何人用这条命令确认"仓库有东西了"：
 
 ```bash
-$ git ls-remote origin
-（无任何输出）
-
-$ curl -s https://api.github.com/repos/Rose2476830928/logops | grep -E '"(size|pushed_at)"'
-"size": 0,
-"pushed_at": "2026-11-19T09:09:02Z",
+git ls-remote origin        # 必须看到 refs/heads/main 才算通
 ```
 
-`size: 0` 且 `pushed_at` 等于创建时间 → **一次都没有 push 过**。
+> **历史教训（仍然有用）**：首次 push 之前，远程 `size=0`、`pushed_at` 等于创建时间，clone 只会得到「空仓库 + 一条 warning」。如果现在看到 `warning: You appear to have cloned an empty repository`，**不是"仓库还没建好"，而是 remote 地址写错或权限不足**——先 `git remote -v` 核对地址。
+>
+> 另一条：GitHub 已停用密码认证。若 `git push` 弹出 `Username for 'https://github.com'` 并要求密码，输什么都没用。本项目已把 remote 切到 SSH（`git@github.com:...`），组员 clone 用 https 也可以，但**推送一律用 SSH**。
 
-后果：现在 clone 会得到「空仓库 + 一条 warning」，看不到任何文件，也没有 `main` 分支。**这不是你操作错了。**
-
-所以第 1 件事由组长做（只需一次）：
-
-```bash
-cd logops
-git push -u origin main
-```
-
-做完后任何人都能用下面这条命令确认"仓库有东西了"：
-
-```bash
-git ls-remote origin        # 必须能看到 refs/heads/main 才算通
-```
 
 ---
 
