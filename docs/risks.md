@@ -24,6 +24,7 @@
 | R3 | PATH 混入 Windows 的 docker.exe | WSL interop 把 Windows PATH 追加进来（实测报 `Failed to translate 'E:\C++\...\bin'`） | `docker` 命令连到 Windows 引擎，卷路径被解释成 `D:\...`，挂载指向错误目录或直接失败 | `init.sh` 校验 `docker version --format '{{.Server.Os}}'` 必须是 `linux`；验证：`command -v docker` 应输出 `/usr/bin/docker` |
 | R4 | conda base 自动激活干扰 cron | 交互 shell 提示符带 `(base)`，cron 不加载 conda | 交互能跑、cron 报 `command not found`；PATH 里 awk/sed 版本可能与交互不同 | 开发时 `conda deactivate`；cron 条目用绝对路径与全路径命令；验证：`env -i /bin/bash -c './check.sh'` 模拟 cron 环境 |
 | R5 | 换行符变成 CRLF | Windows 编辑器（记事本类）另存 `.sh` | 报 `bash\r: No such file or directory`，shebang 失效。这是本项目最典型的假故障 | `.gitattributes` 强制 `*.sh` 为 LF；Windows 侧 `git config core.autocrlf input`；验证：`git ls-files --eol \| grep -c crlf` 应为 0 |
+| R22 | Git Bash（Windows）下进程创建极慢 | 脚本里大量 `$(...)`、管道、`awk`/`sort`/`sed` 外部命令 | **耗时几乎与数据量无关**：10 万行 47 秒、8 行 64 秒（`sys` 时间 37–40 秒），全是 fork 开销；回归测试跑 5 分钟，会让人不愿执行 | 验证统一在 WSL 里跑（同样脚本快 20 倍以上）；`write_report` 的百分比与柱状图改用 bash 算术，单行少 34 次进程；验证：`time ./tests/run-tests.sh` |
 
 ## B Shell 脚本类
 
@@ -36,6 +37,7 @@
 | R9 | `.env` 被重复执行覆盖 | `init.sh` 没有存在性判断，或每次无条件重写密码 | 已有数据卷的密码与新 `.env` 不一致 → db 连不上；验收项 2「连跑两次不改 .env」失败 | 存在即整体跳过；模板新增字段时**只警告缺字段、不自动改**；验证：连跑两次后 `sha256sum .env` 不变 |
 | R10 | 密码进入仓库 | 把真实密码写进 `.env.example`、脚本或镜像 | 课程第 9 节：**一旦提交即视为不合格**；public 仓库永久留痕，删文件也没用 | 模板只留 `DB_PASSWORD=` 空占位；`init.sh` 随机生成 + `chmod 600`；`.gitignore` 拦截；验证：`git diff --cached \| grep -i 'password='` 只应看到空值 |
 | R20 | 可选命令不存在被 `pipefail` 传成 127 | 写 `sc=$(shellcheck --version \| awk ...)` 而该命令未安装 | `set -e` 下整条管道返回 127，脚本在"看起来成功了"的位置**静默退出**，后续步骤全部跳过。**本轮实测踩中**：`init.sh` 生成 `.env` 后直接 exit 127，环境报告没写出来 | 先用 `command -v` 判断再调用，或 `( cmd \|\| true ) \| ...` 兜底；验证：`bash -c 'set -euo pipefail; x=$(not_exist \| cat); echo $?'` 应看到非 0 并确认已被捕获 |
+| R21 | `trap ... EXIT` 的清理函数覆盖退出码 | `cleanup() { rm -rf "$TMPD"; }` 配 `trap cleanup EXIT`，而 `rm` 因权限、路径策略或安全软件失败 | 脚本**明明成功却返回 1**：产物齐全、日志无错，测试却全线飘红，排查方向完全跑偏。**本轮实测**：`analyze.sh` 的 4 个用例因此假失败，真实原因是环境的 safe-delete 拦截了 `rm` | `cleanup` 末尾 `return 0`，`rm` 加 `\|\| true`；验证：故意让清理步骤失败（指向受限路径），`echo $?` 仍应为 0 |
 
 ## C 容器与编排类
 
@@ -68,6 +70,28 @@
 | 随机密码（R7/R7b/R10） | **已验证通过** | 20 次压测全部 16 位；只打印长度不打印内容；首版 `bs=64` 实测出现 12 位，已改 `bs=1024` |
 | 参数与退出码（R8） | **已验证通过** | `--help` → exit 0；未知参数 → 打印用法 + exit 2 |
 | 运行期产物不入库（R10） | **已验证通过** | `.env`、`data/logs/init-report.txt` 均被 `git check-ignore` 命中 |
+| `analyze.sh` 六类指标（R6） | **已验证通过** | 10 万行样例的 9 项指标与独立 awk 手算逐项一致，明细见下 |
+| `analyze.sh` 边界（R7/R21） | **已验证通过** | `.gz` 与明文 summary 完全一致；空日志 exit 0 且计数为 0；坏行计入 `unparsed_lines` 且不污染统计 |
+| `analyze.sh` 静态检查 | **已验证通过** | `shellcheck -x` 0 告警（`SC2016` 因 printf 格式串含 Markdown 反引号，已按文件级豁免并注明原因） |
+| `tests/run-tests.sh` | **已验证通过** | 32 项断言全过；支持 `./tests/run-tests.sh m1\|m2` 分节跑 |
 | `/mnt` 路径告警（R2） | 已实现、未触发 | case 分支已用 `/mnt/d/…`、`/home/…`、`/d/…` 三个样本验证匹配正确；真实触发需在 WSL 的 `/mnt/d` 下运行 |
 | 缺字段提示（R9） | 已实现、未验证 | 需要人工从 `.env` 删掉一行才能测，留给 WSL 环境补测 |
-| R6 / R11–R15 | 尚未涉及 | 属 D3–D6 的实现范围，实现时逐条对照本表 |
+| R11–R15 | 尚未涉及 | 属 D4–D6 的实现范围，实现时逐条对照本表 |
+
+### M2 零误差验证明细（2026-11-24）
+
+数据：`data/logs/access-sample.log`，100000 行，Python `seed=20261124` 生成（不入库）。
+"手算"指独立命令：`wc -l`、`awk '{print $1}' | sort -u | wc -l`、`awk '$9 ~ /^5[0-9][0-9]$/' | wc -l` 等。
+
+| 指标 | 独立命令 | analyze.sh | 结果 |
+|---|---|---|---|
+| 总请求数 | 100000 | 100000 | 一致 |
+| 独立 IP | 500 | 500 | 一致 |
+| 2xx | 89946 | 89946 | 一致 |
+| 3xx | 2911 | 2911 | 一致 |
+| 4xx | 5054 | 5054 | 一致 |
+| 5xx | 2089 | 2089 | 一致 |
+| TOP1 URL | `/article/37` | `/article/37` | 一致 |
+| TOP1 次数 | 2235 | 2235 | 一致 |
+| 峰值小时 | 10（4267 次） | 10（4267 次） | 一致 |
+
