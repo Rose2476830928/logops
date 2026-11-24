@@ -220,15 +220,30 @@ analyze.sh 增加按小时请求趋势，输出到 report.md 的第 6 节。
 
 评审只看三件事：**能不能跑、会不会影响别人、有没有编造的数字**。代码风格不阻塞合并，别在缩进上纠结。
 
-### 5.3 被保护的分支
+### 5.3 被保护的分支（实测规则，2026-11-24）
 
-`main` 已开规则：禁止直接 push、禁止强推、禁止删除、必须走 PR 且 1 人批准。所以：
+`main` 上的 ruleset 实际行为：
+
+| 角色 | 能否直推 `main` | 说明 |
+|---|---|---|
+| 组员 | **不能** | 被拒，必须走 PR，且要有 1 名有写权限的人批准 |
+| 组长（在 bypass list 里） | 能 | 但**优先也走 PR**，只在基线期赶进度或紧急修复时直推 |
+
+组员直推时会看到：
 
 ```text
-remote: error: GH006: Protected branch update failed for refs/heads/main
+remote: error: GH013: Repository rule violations found for refs/heads/main.
+remote: - Changes must be made through a pull request.
 ```
 
-看到这个不是权限出问题，而是你在往 `main` 直推 —— 开分支走 PR。
+组长直推时会看到 `Bypassed rule violations`，这是 bypass 生效的正常提示，不是错误。
+
+三个提醒：
+
+1. **不要在网页上点「Update branch」以外的任何改写操作**，也别对 `main` 用 `--force`；
+2. 组员的 PR 卡在 `Review required` 是**正常状态**，等组长批；不要自己去改仓库设置；
+3. 组长**不能批准自己的 PR**（GitHub 硬限制），所以组长自己的改动要么直推（bypass），要么找一名组员批准——这也是让组员参与评审、留下真实 review 记录的机会，答辩时用得上。
+
 
 ---
 
