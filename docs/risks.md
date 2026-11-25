@@ -44,7 +44,8 @@
 
 | 编号 | 风险点 | 触发场景 | 影响范围 | 规避方式 / 验证 |
 |---|---|---|---|---|
-| R11 | 日志目录只读挂载 | 照抄课程骨架 `- ./data/logs:/var/log/nginx:ro` | nginx 无法 `open() access.log`，容器启动即退出，`compose ps` 显示 `Exited`。连带验收项 7/9/10 全挂 | 去掉 `:ro`；`init.sh` 把日志目录设为 777（取舍见 R14）；验证：`docker compose up -d` 后 `ps` 不是 `Exited` |
+| R11 | 日志不落盘 / 只读挂载 | ① 照抄课程骨架 `- ./data/logs:/var/log/nginx:ro`；② 不挂载直接 `docker run` | ① `:ro` 下 nginx 无法 `open() access.log`，容器启动即退出，`compose ps` 显示 `Exited`，连带验收项 7/9/10 全挂；② **官方 nginx 镜像里 `access.log` 是指向 `/dev/stdout` 的符号链接**（本轮实测），不挂载时日志只进 `docker logs`，`data/logs` 永远是空的 | 去掉 `:ro`；`init.sh` 把日志目录设为 777（取舍见 R14）；落盘必须靠 compose 挂载覆盖 `/var/log/nginx` 整个目录；验证：`docker compose up -d` 后 `ps` 不是 `Exited`，且 `data/logs/access.log` 有内容 |
+| R24 | 健康检查污染访问日志 | healthcheck 直接打 `/`，而该 location 没关日志 | 每 10 秒一条探活记录，一天 8640 条伪请求。`analyze.sh` 算出的总访问量、TOP URL、状态分布全部虚高，报告数字与"真实用户访问"不符。**本轮实测**：未加 `/healthz` 前，日志里能看到 `"GET / HTTP/1.1" ... "Wget"` | 单独开 `location = /healthz { access_log off; return 200; }`，healthcheck 打这个路径；验证：`docker logs <c> \| grep -c healthz` 应为 0，该断言已进 `tests/run-tests.sh` 的 M3 节 |
 | R12 | 非 root 进程绑定 80 端口 | `USER nginx` + `conf` 里 `listen 80` | 容器启动报 `bind() to 0.0.0.0:80 failed (13: Permission denied)` | 容器内 `listen 8080`，compose 里 `${WEB_PORT}:8080`；验证：`docker logs` 无 permission denied，`exec whoami` 非 root |
 | R13 | healthcheck 用的工具镜像里没有 | 用 `nginx:latest`（Debian 基础）配 `curl -f` 做健康检查 | 检查永远失败 → 一直 `unhealthy` → 验收项 9 失败，且 `deploy.sh` 的等待会超时回滚 | 选 `nginx:1.27-alpine`（自带 busybox `wget`）；验证：`docker exec <c> wget -qO- http://127.0.0.1:8080/` 有输出 |
 | R14 | 卷的 uid 不匹配 | 容器内 nginx 为 uid 101，宿主 `data/logs` 属主是 1000 且目录 755 | 写日志 permission denied，容器反复重启；报错藏在 `docker logs` 里，容易误判成配置错误 | 三选一：777（简单）/ `chown 101:101`（干净）/ compose 指定 `user:`（可控）。报告里写明取舍；验证：`docker exec <c> sh -c 'echo x >> /var/log/nginx/t.log'` |
