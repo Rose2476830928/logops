@@ -154,6 +154,59 @@ if want m2 || want all; then
     fi
 fi
 
+# ------------------------------------------------------------- M3 Dockerfile
+if want m3; then
+    printf '\n=== M3 Dockerfile ===\n'
+    if ! docker info >/dev/null 2>&1; then
+        skip "M3 全部用例（docker 守护进程不可用）"
+    else
+        IMG="logops-web:test"
+        docker build -q -t "$IMG" . >/dev/null 2>&1
+        assert_eq "docker build 退出码" 0 "$?"
+
+        SIZE="$(docker images "$IMG" --format '{{.Size}}' 2>/dev/null)"
+        case "$SIZE" in
+            *GB*)
+                bad "镜像体积" "<300MB" "$SIZE" ;;
+            *MB*)
+                if [[ "$(printf '%s' "$SIZE" | sed 's/MB//' | cut -d. -f1)" -lt 300 ]]; then
+                    ok "镜像体积 $SIZE（< 300MB）"
+                else
+                    bad "镜像体积" "<300MB" "$SIZE"
+                fi ;;
+            *)
+                ok "镜像体积 $SIZE" ;;
+        esac
+
+        C="logops-m3"
+        docker rm -f "$C" >/dev/null 2>&1
+        docker run -d --name "$C" -p 18099:8080 "$IMG" >/dev/null 2>&1
+        assert_eq "容器启动退出码" 0 "$?"
+
+        ST=""
+        for _ in $(seq 1 20); do
+            ST="$(docker inspect --format '{{.State.Health.Status}}' "$C" 2>/dev/null)"
+            [[ "$ST" == "healthy" ]] && break
+            sleep 1
+        done
+        assert_eq "健康状态" healthy "$ST"
+
+        assert_eq "whoami 非 root" nginx "$(docker exec "$C" whoami 2>/dev/null)"
+
+        if command -v curl >/dev/null 2>&1; then
+            assert_eq "首页 HTTP 200" 200 "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:18099/ 2>/dev/null)"
+            assert_eq "healthz 返回 ok" ok "$(curl -sS http://localhost:18099/healthz 2>/dev/null)"
+            # 探活请求不得进入访问日志，否则 analyze 的访问量会虚增
+            sleep 2
+            assert_eq "日志中无 healthz" 0 "$(docker logs "$C" 2>&1 | grep -c healthz)"
+        else
+            skip "HTTP 与日志相关用例（缺少 curl）"
+        fi
+
+        docker rm -f "$C" >/dev/null 2>&1
+    fi
+fi
+
 printf '\n----------------------------------------\n'
 printf '结果: %d 通过, %d 失败, %d 跳过\n' "$PASS" "$FAIL" "$SKIP"
 if [[ "$FAIL" -gt 0 ]]; then
