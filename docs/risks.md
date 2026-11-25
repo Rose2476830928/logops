@@ -25,6 +25,7 @@
 | R4 | conda base 自动激活干扰 cron | 交互 shell 提示符带 `(base)`，cron 不加载 conda | 交互能跑、cron 报 `command not found`；PATH 里 awk/sed 版本可能与交互不同 | 开发时 `conda deactivate`；cron 条目用绝对路径与全路径命令；验证：`env -i /bin/bash -c './check.sh'` 模拟 cron 环境 |
 | R5 | 换行符变成 CRLF | Windows 编辑器（记事本类）另存 `.sh` | 报 `bash\r: No such file or directory`，shebang 失效。这是本项目最典型的假故障 | `.gitattributes` 强制 `*.sh` 为 LF；Windows 侧 `git config core.autocrlf input`；验证：`git ls-files --eol \| grep -c crlf` 应为 0 |
 | R22 | Git Bash（Windows）下进程创建极慢 | 脚本里大量 `$(...)`、管道、`awk`/`sort`/`sed` 外部命令 | **耗时几乎与数据量无关**：10 万行 47 秒、8 行 64 秒（`sys` 时间 37–40 秒），全是 fork 开销；回归测试跑 5 分钟，会让人不愿执行 | 验证统一在 WSL 里跑（同样脚本快 20 倍以上）；`write_report` 的百分比与柱状图改用 bash 算术，单行少 34 次进程；验证：`time ./tests/run-tests.sh` |
+| R23 | Windows 提交的脚本在 Linux 上没有执行权限 | Windows 的 `core.filemode=false`，本地 `chmod +x` **不会被 git 记录**；clone 到 Linux 后是 `100644` | `./init.sh` 报 `Permission denied`，组员照 README 逐条执行会全部失败，看起来像"仓库是坏的"。**本轮实测**：WSL 侧 `./tests/run-tests.sh` 直接 Permission denied | `git update-index --chmod=+x <file>` 后提交（不需要真实文件权限）；验证：`git ls-files -s` 必须显示 `100755`；救急用 `chmod +x`。**不要**靠 README 里写 `bash init.sh` 绕过——验收要求的是 `./init.sh` |
 
 ## B Shell 脚本类
 
