@@ -47,7 +47,14 @@ if want m1; then
         mkdir -p "$W"
         cp init.sh .env.example "$W/"
 
-        ( cd "$W" && ./init.sh >/dev/null 2>&1 ); assert_eq "首次执行退出码" 0 "$?"
+        RUN_LOG="$TMP/init-first.log"
+        ( cd "$W" && ./init.sh > "$RUN_LOG" 2>&1 )
+        RC=$?
+        assert_eq "首次执行退出码" 0 "$RC"
+        if [[ "$RC" -ne 0 ]]; then
+            printf '         init.sh 完整输出（用于定位）:\n'
+            sed 's/^/           /' "$RUN_LOG"
+        fi
 
         if [[ -f "$W/.env" ]]; then
             ok ".env 已生成"
@@ -55,13 +62,19 @@ if want m1; then
             bad ".env 已生成" "存在" "缺失"
         fi
 
-        H1="$(sha256sum "$W/.env" 2>/dev/null | cut -d' ' -f1)"
         PW_LEN="$(awk -F= '/^DB_PASSWORD=/{ print length($2) }' "$W/.env" 2>/dev/null)"
         assert_eq "密码长度" 16 "$PW_LEN"
 
-        ( cd "$W" && ./init.sh >/dev/null 2>&1 ); assert_eq "二次执行退出码" 0 "$?"
-        H2="$(sha256sum "$W/.env" 2>/dev/null | cut -d' ' -f1)"
-        assert_eq "二次执行不改 .env" "$H1" "$H2"
+        # 只有 .env 真的存在时才比较 sha，否则 "两个空 sha 相等" 会造成假通过
+        if [[ -f "$W/.env" ]]; then
+            H1="$(sha256sum "$W/.env" 2>/dev/null | cut -d' ' -f1)"
+            ( cd "$W" && ./init.sh >/dev/null 2>&1 ); assert_eq "二次执行退出码" 0 "$?"
+            H2="$(sha256sum "$W/.env" 2>/dev/null | cut -d' ' -f1)"
+            assert_eq "二次执行不改 .env" "$H1" "$H2"
+        else
+            bad "二次执行退出码" "0" "首次未生成 .env，无法进入二次执行"
+            bad "二次执行不改 .env" "文件存在且 sha 不变" ".env 不存在，无从比较"
+        fi
 
         ( cd "$W" && ./init.sh --help >/dev/null 2>&1 ); assert_eq "--help 退出码" 0 "$?"
         ( cd "$W" && ./init.sh --bogus >/dev/null 2>&1 ); assert_eq "未知参数退出码" 2 "$?"
