@@ -1,0 +1,15 @@
+# 构建上下文排除项：只保留 Dockerfile 与 conf/
+# 不排除的话，data/logs 下的样例日志（十万行级）和 .git 会一起塞进上下文，
+# 拖慢构建且可能把日志内容带进镜像层
+.git
+.gitignore
+.github
+qimo
+data
+out
+docs
+tests
+.env
+.env.*
+*.docx
+*.log
