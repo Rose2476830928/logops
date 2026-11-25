@@ -135,14 +135,16 @@ calc_details() {
             for (x in hr)  printf "H\t%s\t%d\n", x, hr[x]
         }' > "$TMPD/details.tsv"
 
+    # 次级排序键按 URL/路径升序：同分时保证结果确定，
+    # 不依赖 awk 数组遍历顺序（gawk 与 mawk 的遍历顺序不同，会让两次运行结果不一致）
     awk -F'\t' '$1 == "Q" { print $2 "\t" $3 }' "$TMPD/details.tsv" \
-        | sort -k1,1nr | sed -n "1,${TOP_N}p" > "$TMPD/top.tsv"
+        | LC_ALL=C sort -k1,1nr -k2,2 | sed -n "1,${TOP_N}p" > "$TMPD/top.tsv"
     awk -F'\t' '$1 == "S" { print $2 "\t" $3 }' "$TMPD/details.tsv" \
-        | sort -k1,1n > "$TMPD/status.tsv"
+        | LC_ALL=C sort -k1,1n > "$TMPD/status.tsv"
     awk -F'\t' '$1 == "E" { print $2 "\t" $3 }' "$TMPD/details.tsv" \
-        | sort -k1,1nr > "$TMPD/err5xx.tsv"
+        | LC_ALL=C sort -k1,1nr -k2,2 > "$TMPD/err5xx.tsv"
     awk -F'\t' '$1 == "H" { print $2 "\t" $3 }' "$TMPD/details.tsv" \
-        | sort -k1,1 > "$TMPD/hour.tsv"
+        | LC_ALL=C sort -k1,1 > "$TMPD/hour.tsv"
 
     if [[ -s "$TMPD/top.tsv" ]]; then
         TOP_COUNT="$(sed -n '1p' "$TMPD/top.tsv" | cut -f1)"
