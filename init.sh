@@ -56,7 +56,7 @@ check_deps() {
         need "$c"
     done
     docker compose version >/dev/null 2>&1 \
-        || die "依赖" "docker compose 不可用（需要 Docker Compose V2 插件）"
+        || die "依赖" "docker compose 不可用：Ubuntu 上执行 sudo apt install docker-compose-v2；若用 Docker Desktop，确认 WSL 集成已开启"
     docker info >/dev/null 2>&1 \
         || die "依赖" "docker 守护进程未运行：先启动 Docker Desktop，或执行 sudo systemctl start docker"
     # 防止 PATH 命中 Windows 的 docker.exe（WSL interop 会把 Windows PATH 追加进来）
